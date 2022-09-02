@@ -1,6 +1,4 @@
 import { DynamoDBStore } from './store';
-import { Store } from 'express-session';
-
 
 /**
  * Return the `DynamoDBStore` extending `connect`'s session Store.
@@ -10,6 +8,7 @@ import { Store } from 'express-session';
  * @api public
  */
 
-export default function connect(session: any) {
-  return DynamoDBStore
+// eslint-disable-next-line @typescript-eslint/ban-types, @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+export default function connect(_session: any): Function {
+  return DynamoDBStore;
 }

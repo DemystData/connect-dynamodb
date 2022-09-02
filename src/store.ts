@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /*!
  * Connect - DynamoDB
  * Copyright(c) 2020 introvert.com LLC <support@introvert.com>, forked and upgrade by samuraitruong
@@ -8,8 +9,7 @@ import AWS from 'aws-sdk';
 import session from 'express-session';
 import { oneDayInMilliseconds } from './constants';
 
-export class DynamoDBStore extends session.Store {
-  private connect: any = {};
+export class DynamoDBStore extends session.Store implements Extracted {
   private options: any;
 
   private prefix: string;
@@ -23,19 +23,19 @@ export class DynamoDBStore extends session.Store {
   private _tableInfo: any = null;
 
   /**
-  * Initialize DynamoDBStore with the given `options`.
-  *
-  * @param {Object} options
-  * @api public
-  */
+   * Initialize DynamoDBStore with the given `options`.
+   *
+   * @param {Object} options
+   * @api public
+   */
   constructor(options: any = {}) {
     super(options);
 
     this.options = options || {};
     this.options.ttl = this.options.ttl || 365 * 24 * 3600; // defaut to 1 years
     this.options.ttlFieldName = this.options.ttlFieldName || 'ttl'; // defaut to 1 years
-    this.prefix = null == options.prefix ? 'sess:' : options.prefix;
-    this.hashKey = null == options.hashKey ? 'id' : options.hashKey;
+    this.prefix = options.prefix ?? 'sess:';
+    this.hashKey = options.hashKey ?? 'id';
     this.readCapacityUnits = parseInt(options.readCapacityUnits || 5, 10);
     this.writeCapacityUnits = parseInt(options.writeCapacityUnits || 5, 10);
 
@@ -65,22 +65,22 @@ export class DynamoDBStore extends session.Store {
   async prepareTable() {
     if (this._tableInfo) return;
     try {
-      const info = await this.client.describeTable(
-        {
+      const info = await this.client
+        .describeTable({
           TableName: this.table,
-        }).promise();
+        })
+        .promise();
       this._tableInfo = info;
-      // console.log(JSON.stringify(info, null, 4))
     } catch (err) {
       try {
-        this._tableInfo = await this.client.createTable(
-          {
+        this._tableInfo = await this.client
+          .createTable({
             TableName: this.table,
             AttributeDefinitions: [
               {
                 AttributeName: this.hashKey,
                 AttributeType: 'S',
-              }
+              },
             ],
             KeySchema: [
               {
@@ -92,16 +92,14 @@ export class DynamoDBStore extends session.Store {
               ReadCapacityUnits: this.readCapacityUnits,
               WriteCapacityUnits: this.writeCapacityUnits,
             },
-          }).promise();
-      }
-      catch (err) {
+          })
+          .promise();
+      } catch (err) {
         if (err.code !== 'ResourceInUseException') {
-          console.log(err);
           throw err;
         }
       }
     }
-
   }
 
   /**
@@ -119,51 +117,45 @@ export class DynamoDBStore extends session.Store {
       Key: {
         [this.hashKey]: {
           S: this.prefix + sid,
-        }
+        },
       },
       ConsistentRead: true,
     };
     try {
       const result = await this.client.getItem(params).promise();
-      if (!(result.Item && result.Item.sess && result.Item.sess.S))
-        return fn(null);
+      if (!result.Item?.sess?.S) return fn(null);
       else if (result.Item.expires && now >= +(result.Item.expires?.N || 0)) {
         return fn(null);
       } else {
         const sessStr = result.Item.sess.S.toString();
         const sess = JSON.parse(sessStr);
-        if (result.Item && result.Item.ttl) {
-          sess.__ttl__ = +(result.Item[this.options.ttlFieldName].N as string)
+        if (result.Item?.ttl) {
+          sess.__ttl__ = +(result.Item[this.options.ttlFieldName].N as string);
         }
         return fn(null, sess);
       }
-    }
-    catch (err) {
-      return fn(err)
+    } catch (err) {
+      return fn(err);
     }
   }
 
   /**
    * Commit the given `sess` object associated with the given `sid`.
-   *
    * @param {String} sid
-   * @param {Session} sess
    * @param {Function} fn
    * @api public
    */
   async set(sid: string, currentSess: any, fn: (err?: any) => any) {
     await this.prepareTable();
     try {
-      const oldSession = await this.get(sid, (err, data) => data);
-      const newSess = Object.assign({}, oldSession, currentSess);
+      const oldSession = await this.get(sid, (_err, data) => data);
+      Object.assign({}, oldSession, currentSess);
 
-      const data = await this.setInternal(sid, newSess);
-      fn(null)
+      fn(null);
     } catch (err) {
-      fn(err)
+      fn(err);
     }
   }
-
 
   async setInternal(sid: string, sess: any) {
     const expires = this.getExpiresValue(sess);
@@ -193,16 +185,10 @@ export class DynamoDBStore extends session.Store {
 
   /**
    * Cleans up expired sessions
-   *
-   * @param {Function} fn
    * @api public
    */
-
   async reap() {
     const now = Math.floor(Date.now() / 1000);
-    const options = {
-      endkey: '[' + now + ',{}]',
-    };
     const params = {
       TableName: this.table,
       ScanFilter: {
@@ -217,38 +203,32 @@ export class DynamoDBStore extends session.Store {
       },
       AttributesToGet: [this.hashKey],
     };
-    try {
-      const data = await this.client.scan(params).promise()
-      for await (const item of data.Items || []) {
-        await this.destroy(item[this.hashKey].S || '');
-      }
-    } catch (err) {
-      console.log(err)
-      throw err;
+    const data = await this.client.scan(params).promise();
+    for await (const item of data.Items || []) {
+      await this.destroy(item[this.hashKey].S || '');
     }
-
-
   }
 
   /**
-  * Destroy the session associated with the given `sid`.
-  *
-  * @param {String} sid
-  * @param {Function} fn
-  * @api public
-  */
+   * Destroy the session associated with the given `sid`.
+   *
+   * @param {String} sid
+   * @param {Function} fn
+   * @api public
+   */
   async destroy(sid: string, fn?: (err?: any) => void) {
+    await this.client
+      .deleteItem({
+        TableName: this.table,
+        Key: {
+          [this.hashKey]: {
+            S: (sid = this.prefix + sid),
+          },
+        },
+      })
+      .promise();
 
-    await this.client.deleteItem({
-      TableName: this.table, Key: {
-        [this.hashKey]: {
-          S: sid = this.prefix + sid
-        }
-      }
-    }).promise();
-
-    fn && fn(null)
-
+    fn?.(null);
   }
 
   /**
@@ -265,67 +245,81 @@ export class DynamoDBStore extends session.Store {
       Key: {
         [this.hashKey]: {
           S: sid,
-        }
+        },
       },
       UpdateExpression: 'set expires = :e, #ttl = :ttl',
       ExpressionAttributeNames: {
-        '#ttl': this.options.ttlFieldName
+        '#ttl': this.options.ttlFieldName,
       },
       ExpressionAttributeValues: {
         ':e': {
           N: JSON.stringify(expires),
         },
         ':ttl': {
-          N: this.getTTLValue().toString()
-        }
-
+          N: this.getTTLValue().toString(),
+        },
       },
       ReturnValues: 'UPDATED_NEW',
     };
 
     try {
       const updated = await this.client.updateItem(params).promise();
-      fn && fn(null, updated);
+      fn?.(null, updated);
       return updated;
     } catch (error) {
-      fn && fn(error);
+      fn?.(error);
       throw error;
     }
   }
 
   /**
-  * Calculates the expire value based on the configuration.
-  * @param  {Object} sess Session object.
-  * @return {Integer}      The expire on timestamp.
-  */
+   * Calculates the expire value based on the configuration.
+   * @param  {Object} sess Session object.
+   * @return {Integer}      The expire on timestamp.
+   */
   getExpiresValue(sess: any) {
     const expires =
-      typeof sess.cookie.maxAge === 'number'
-        ? +new Date() + sess.cookie.maxAge
-        : +new Date() + oneDayInMilliseconds;
+      typeof sess.cookie.maxAge === 'number' ? +new Date() + sess.cookie.maxAge : +new Date() + oneDayInMilliseconds;
     return Math.floor(expires / 1000);
   }
 
   /**
-   * get value for set TTL 
-   * @returns 
+   * get value for set TTL
+   * @returns
    */
   getTTLValue() {
     const now = new Date().getTime();
     return Math.floor(now / 1000) + this.options.ttl;
   }
   /**
-  * Clear intervals
-  *
-  * @api public
-  */
+   * Clear intervals
+   *
+   * @api public
+   */
   clearInterval() {
     if (this._reap) clearInterval(this._reap);
   }
-  // regenerate(re: any, fn: Function) {
+}
 
-  //   console.log(re)
-  //   fn(re)
-  // }
-
+interface Extracted {
+  /* TODO: add the missing return type */
+  prepareTable(): Promise<any>;
+  /* TODO: add the missing return type */
+  get(sid: string, fn: (err?: any, data?: any) => any): Promise<any>;
+  /* TODO: add the missing return type */
+  set(sid: string, currentSess: any, fn: (err?: any) => any): Promise<any>;
+  /* TODO: add the missing return type */
+  setInternal(sid: string, sess: any): Promise<any>;
+  /* TODO: add the missing return type */
+  reap(): Promise<any>;
+  /* TODO: add the missing return type */
+  destroy(sid: string, fn?: (err?: any) => void): Promise<any>;
+  /* TODO: add the missing return type */
+  touch(sid: string, sess: any, fn?: (err?: any, updated?: any) => void): Promise<any>;
+  /* TODO: add the missing return type */
+  getExpiresValue(sess: any): any;
+  /* TODO: add the missing return type */
+  getTTLValue(): any;
+  /* TODO: add the missing return type */
+  clearInterval(): any;
 }

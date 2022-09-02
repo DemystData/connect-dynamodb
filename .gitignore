@@ -4,3 +4,5 @@ aws-config.json
 dist/
 .env
 .eslintcache
+.yarn
+.dccache
